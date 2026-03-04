@@ -52,17 +52,11 @@ Through systematic reconnaissance from inside the Aules network, we mapped the f
 
 ### Final Working Solution
 
-```
-┌─────────────┐     HTTPS/443      ┌──────────────┐    Cloudflare     ┌──────────────────┐
-│   Student    │ ──────────────────▶│  Cloudflare   │    Tunnel        │  Proxmox Homelab  │
-│  (Nekobox)  │   TLS + WebSocket  │  Edge (CDN)   │ ◀═══════════════▶│  LXC Container    │
-│             │   Trusted IP ✅     │  104.21.x.x   │   Outbound conn  │  Xray-core :8080  │
-└─────────────┘                    └──────────────┘   No ports open    └──────────────────┘
-                                                                              │
-    The firewall sees:                                                        ▼
-    ✓ HTTPS to Cloudflare IP                                            ┌──────────┐
-    ✓ Valid TLS certificate                                             │ Internet │
-    ✓ Normal WebSocket traffic                                          └──────────┘
+```mermaid
+flowchart LR
+    A[Student\nNekobox] -->|HTTPS/443\nTLS + WebSocket| B[Cloudflare\nEdge CDN\n104.21.x.x]
+    B <-->|Cloudflare\nTunnel| C[Proxmox Homelab\nLXC Container\nXray-core :8080]
+    C --> D[Internet]
 ```
 
 ### Protocol Stack
