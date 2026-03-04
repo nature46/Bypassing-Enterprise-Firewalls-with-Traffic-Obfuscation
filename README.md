@@ -7,9 +7,9 @@
 
 > **Named after Janus, the Roman god of doorways and passages** — this project opens doors through firewalls that were designed to keep them shut.
 
-![Janus-God](janus.png)   
-
 In Roman mythology, Janus was the god of doors, gates, and transitions. Janus represented the middle ground between both concrete and abstract dualities such as life/death, beginning/end, youth/adulthood, rural/urban, war/peace, and barbarism/civilization.
+
+![Janus-God](janus.png)   
 
 **Project Janus is a cybersecurity research project that demonstrates how to circumvent enterprise-grade network firewalls using traffic obfuscation, protocol tunneling, and domain fronting techniques.** Developed as part of an ASIR (Administración de Sistemas Informáticos y Redes) curriculum at IES Jaume I, Borriana (Spain).
 
