@@ -67,7 +67,7 @@ flowchart LR
 ├────────────────────────────────┤
 │        WebSocket (WS)          │  ← HTTP-compatible transport
 ├────────────────────────────────┤
-│      TLS 1.3 (Cloudflare)     │  ← Encryption (handled by CF)
+│      TLS 1.3 (Cloudflare)      │  ← Encryption (handled by CF)
 ├────────────────────────────────┤
 │          TCP / 443             │  ← Standard HTTPS port
 └────────────────────────────────┘
