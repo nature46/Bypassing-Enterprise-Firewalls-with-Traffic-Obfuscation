@@ -42,15 +42,15 @@ Through systematic reconnaissance from inside the Aules network, we mapped the f
 
 | Target | Port 443 | Method |
 |--------|----------|--------|
-| AWS EC2 IPs | ❌ Blocked | IP range blocklist |
-| Google Cloud IPs | ❌ Blocked | IP range blocklist |
-| Oracle Cloud IPs | ❌ Blocked | IP range blocklist |
+| AWS EC2 IPs | ✅ Open | IP range allowed |
+| Reddit | ❌ Blocked | IP range blocklist |
+| Steam | ❌ Blocked | IP range blocklist |
 | Custom domains (nature46.uk) | ❌ Blocked | DNS-level filtering |
 | **Cloudflare IPs** | ✅ Open | Trusted CDN provider |
 | **Microsoft IPs** | ✅ Open | Trusted vendor |
 | workers.dev / pages.dev | ✅ Open | Cloudflare subdomains |
 
-**Key insight**: The firewall blocks cloud datacenter IP ranges but trusts CDN providers like Cloudflare. This creates a path through the firewall using Cloudflare as a trusted intermediary.
+**Key insight**: The firewall blocks websites like [reddit.com](https://www.reddit.com/) or [steam.com](https://store.steampowered.com/?l=spanish) but trusts CDN providers like Cloudflare. This creates a path through the firewall using Cloudflare as a trusted intermediary.
 
 ---
 
