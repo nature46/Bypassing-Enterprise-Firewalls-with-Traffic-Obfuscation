@@ -1,0 +1,27 @@
+# Project Janus — VLESS Client Link Templates
+# =============================================
+
+# TEMPLATE: For use through Cloudflare (school / restricted networks)
+# Replace: YOUR_UUID, CLOUDFLARE_IP, yourdomain.com
+vless://YOUR_UUID@CLOUDFLARE_IP:443?type=ws&encryption=none&path=%2Fsecretpath&host=janus.yourdomain.com&security=tls&sni=janus.yourdomain.com#janus-cloudflare
+
+# TEMPLATE: For direct LAN use (home network testing)
+# Replace: YOUR_UUID, SERVER_LAN_IP
+vless://YOUR_UUID@SERVER_LAN_IP:8080?type=ws&encryption=none&path=%2Fsecretpath&host=janus.yourdomain.com&security=none#janus-local
+
+# =============================================
+# How to find your Cloudflare IP:
+#   dig janus.yourdomain.com +short
+#
+# How to generate a UUID:
+#   /usr/local/bin/xray uuid
+#
+# Link field reference:
+#   - Address: Cloudflare IP (bypasses DNS blocking) or domain
+#   - Port: 443 (Cloudflare) or 8080 (direct)
+#   - type=ws: WebSocket transport
+#   - path: Must match server config (/secretpath)
+#   - host: HTTP Host header (Cloudflare routing)
+#   - security: tls (Cloudflare) or none (direct)
+#   - sni: TLS Server Name Indication
+# =============================================
