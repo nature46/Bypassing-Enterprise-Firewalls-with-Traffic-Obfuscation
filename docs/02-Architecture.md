@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document explains each component in the Project Janus stack, why it was chosen, and how the pieces fit together.
+This document explains each component in the Project Janus stack, why it was chosen, and how the pieces fit together to bypass a 5-layer enterprise firewall.
 
 ---
 
@@ -10,11 +10,9 @@ This document explains each component in the Project Janus stack, why it was cho
 
 ### Xray-core — The Proxy Engine
 
-[Xray-core](https://github.com/XTLS/Xray-core) is a high-performance network proxy tool. It's the engine that actually tunnels your traffic through the firewall.
+[Xray-core](https://github.com/XTLS/Xray-core) is a high-performance network proxy tool. It accepts connections using the VLESS protocol and forwards them to the internet.
 
-**What it does**: Accepts incoming connections using the VLESS protocol, then forwards them to the internet.
-
-**Why Xray-core over alternatives**:
+**Why Xray-core**:
 
 | Feature | Xray-core | V2Ray | Shadowsocks |
 |---------|-----------|-------|-------------|
@@ -22,97 +20,167 @@ This document explains each component in the Project Janus stack, why it was cho
 | Reality (TLS camouflage) | ✅ | ❌ | ❌ |
 | WebSocket transport | ✅ | ✅ | Plugin needed |
 | Active development | ✅ | Slower | ✅ |
-| Performance | Excellent | Good | Good |
 
 ### VLESS Protocol — Lightweight and Fast
 
-VLESS is a stateless proxy protocol that carries your traffic inside a thin wrapper. Compared to VMess (its predecessor), VLESS has no encryption overhead because TLS handles that layer.
-
-**How it works**:
+VLESS is a stateless proxy protocol. Compared to VMess, it has zero encryption overhead because TLS handles that layer.
 
 ```
 Client sends:    [VLESS header: UUID + destination] [payload data]
 Server receives: Validates UUID → Forwards payload to destination
-Server returns:  [Response data] → Client
 ```
 
-The UUID acts as the authentication key — anyone with the correct UUID can use the proxy.
+The UUID acts as authentication — each user gets their own UUID for access control.
 
 ### WebSocket Transport — Hiding in Plain Sight
 
-WebSocket is a standard web protocol used by millions of websites (Slack, Discord, trading platforms, etc.). By running VLESS inside WebSocket:
+WebSocket is used by millions of websites (Slack, Discord, trading platforms). Running VLESS inside WebSocket makes the traffic indistinguishable from normal web traffic.
 
-- The firewall sees normal WebSocket traffic to a Cloudflare IP
-- The connection upgrades from HTTP to WebSocket on the `/secretpath` endpoint
-- All subsequent data flows through the WebSocket tunnel
+**Why not raw TCP?** Cloudflare Tunnel only supports HTTP/WebSocket, not raw TCP. WebSocket on port 443 also blends with legitimate HTTPS traffic.
 
-**Why not raw TCP?** Raw TCP to a custom port would be blocked. WebSocket rides on HTTP/HTTPS (port 443), which is always allowed.
+### Cloudflare Worker — SNI Fronting
+
+The [Cloudflare Worker](https://developers.cloudflare.com/workers/) is the critical innovation that defeated the Aules firewall's SNI filtering.
+
+**The problem**: The firewall inspects the TLS SNI field and blocks connections with `nature46.uk`.
+
+**The solution**: A Worker running on `janus-relay.jonpeter46.workers.dev` receives the client's connection with an allowed SNI (`workers.dev`) and internally rewrites the request to `janus.nature46.uk`:
+
+```javascript
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    url.hostname = "janus.nature46.uk";
+    const newRequest = new Request(url, request);
+    newRequest.headers.set("Host", "janus.nature46.uk");
+    return fetch(newRequest);
+  }
+}
+```
+
+**What the firewall sees**: TLS connection to a Cloudflare IP with SNI `workers.dev` — completely legitimate.
+
+**What actually happens**: The Worker forwards everything to `janus.nature46.uk` which routes through the Cloudflare Tunnel to the home server.
 
 ### Cloudflare Tunnel — The Bridge
 
-[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) creates an encrypted outbound connection from your server to Cloudflare's edge network. 
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) creates an encrypted outbound connection from the home server to Cloudflare's edge network.
 
 **Key properties**:
 
-- **Outbound only**: Your server connects to Cloudflare, not the other way around
-- **No ports needed**: Works behind CG-NAT, firewalls, whatever
-- **Free tier**: No cost for basic usage
-- **Trusted IPs**: Cloudflare's IP ranges are whitelisted by most enterprise firewalls
-
-**Traffic flow**:
-
-```
-1. Client → HTTPS request to Cloudflare IP (104.21.x.x:443)
-2. Cloudflare edge → Routes to your tunnel based on hostname/SNI
-3. Cloudflare tunnel → Delivers to your server (http://192.168.0.103:8080)
-4. Xray-core → Processes VLESS request, forwards to internet
-5. Response travels back through the same path
-```
+- **Outbound only**: No incoming connections needed
+- **No ports needed**: Works behind CG-NAT and firewalls
+- **Free tier**: No cost
+- **Trusted IPs**: Cloudflare's IP ranges pass enterprise firewalls
 
 ### 3x-ui — Management Interface
 
-[3x-ui](https://github.com/MHSanaei/3x-ui) provides a web GUI for managing Xray-core:
+[3x-ui](https://github.com/MHSanaei/3x-ui) provides a web GUI for Xray-core:
 
-- Create/delete proxy inbounds
-- Manage client accounts (individual UUIDs)
+- Create/delete inbounds and client accounts
 - Monitor traffic per user
-- Export connection URIs for clients
-- Configure transport and security settings
+- Export VLESS connection URIs
+- Configure transport settings
 
-**Panel access**: `https://YOUR_SERVER_IP:2053/YOUR_BASEPATH`
+### Nekobox — The Client (TUN Mode is Critical)
 
-### Nekobox / V2RayN — Client Applications
+[Nekobox](https://github.com/MatsuriDayo/nekoray) runs on the student's device and has two modes:
 
-These are the applications that run on the student's device:
+- **System Proxy**: Routes browser traffic through the proxy (uses system network stack)
+- **TUN Mode**: Creates a virtual network interface that captures ALL traffic at the network layer
 
-- **Nekobox** (Linux): Creates a TUN interface that captures all system traffic and routes it through the proxy
-- **V2RayN** (Windows): Configures system proxy settings to route traffic through VLESS
-
-Both accept VLESS URIs (the `vless://...` links) for easy configuration.
+**TUN mode is essential** for the Aules bypass. The transparent proxy intercepts traffic from the system network stack (which is why `curl` returns 000). TUN mode operates below this layer, creating raw TCP connections that the proxy can't intercept.
 
 ---
 
-## Why Two Approaches?
-
-### Approach 1: AWS EC2 + VLESS Reality (Direct)
+## Complete Traffic Flow
 
 ```
-[Client] ──TCP 443──▶ [AWS EC2: Xray + Reality] ──▶ [Internet]
+Step 1: Nekobox (TUN mode) creates raw TCP connection
+        → Bypasses transparent proxy (Layer 3)
+
+Step 2: TCP connects to Cloudflare IP (104.21.x.x:443)
+        → Passes IP blocklist (Layer 1)
+        → Uses port 443 (Layer 5)
+
+Step 3: TLS handshake with SNI "janus-relay.jonpeter46.workers.dev"
+        → Passes SNI filter (Layer 4) — workers.dev is allowed
+
+Step 4: Worker receives HTTPS request
+        → Rewrites hostname to janus.nature46.uk
+        → Forwards internally within Cloudflare
+
+Step 5: Cloudflare routes to the tunnel for janus.nature46.uk
+        → Tunnel delivers to home server (192.168.0.103:8080)
+
+Step 6: Xray-core validates UUID and processes VLESS request
+        → Forwards traffic to the internet
+
+Step 7: Response travels back through the same chain
 ```
 
-**VLESS Reality** makes the proxy server impersonate a legitimate HTTPS server (like microsoft.com). If someone probes the server, they see what appears to be a real Microsoft website.
+---
 
-**Why it failed at school**: The Aules firewall blocks all AWS EC2 IP ranges at the IP level. It doesn't matter how well the traffic is disguised — if the destination IP is blacklisted, the connection never happens.
-
-### Approach 2: Proxmox + Cloudflare Tunnel (CDN Fronting)
+## Network Diagram
 
 ```
-[Client] ──HTTPS 443──▶ [Cloudflare CDN] ══tunnel══▶ [Home Server: Xray + WS] ──▶ [Internet]
+                    SCHOOL NETWORK (Aules)
+    ┌──────────────────────────────────────────────┐
+    │                                              │
+    │  ┌──────────┐    TCP 443      ┌──────────┐  │
+    │  │ Student  │ ──────────────▶ │ Firewall │  │
+    │  │ Nekobox  │  CF IP + SNI:   │ 5 layers │  │
+    │  │ TUN mode │  workers.dev    └────┬─────┘  │
+    │  └──────────┘                      │ ✅     │
+    │   bypasses                         │        │
+    │   transparent                      │        │
+    │   proxy                            │        │
+    └────────────────────────────────────┼────────┘
+                                         │
+                          ┌──────────────▼──────────────┐
+                          │     CLOUDFLARE EDGE          │
+                          │                              │
+                          │  ┌──────────────────────┐   │
+                          │  │   Worker (janus-relay)│   │
+                          │  │   Rewrites host to    │   │
+                          │  │   janus.nature46.uk   │   │
+                          │  └──────────┬───────────┘   │
+                          │             │               │
+                          │  ┌──────────▼───────────┐   │
+                          │  │   Tunnel Routing      │   │
+                          │  │   janus.nature46.uk   │   │
+                          │  └──────────┬───────────┘   │
+                          └─────────────┼───────────────┘
+                                        │
+                          Cloudflare Tunnel (outbound)
+                                        │
+                    HOME NETWORK (Borriana)
+    ┌───────────────────────────────────┼──────────┐
+    │                                   │          │
+    │  ┌──────────┐   tunnel    ┌──────▼──────┐   │
+    │  │ Proxmox  │◀═══════════▶│ LXC-101     │   │
+    │  │  Odin    │             │ cloudflared │   │
+    │  │ .0.100   │             │ .0.111      │   │
+    │  └──────────┘             └─────────────┘   │
+    │                                   │          │
+    │                           ┌──────▼──────┐   │
+    │                           │ LXC-109     │   │
+    │                           │ Janus       │   │
+    │                           │ Xray :8080  │   │
+    │                           │ 3x-ui :2053 │   │
+    │                           │ .0.103      │   │
+    │                           └──────┬──────┘   │
+    │                                  │          │
+    │                           ┌──────▼──────┐   │
+    │                           │   Router    │   │
+    │                           │  CG-NAT    │   │
+    │                           └──────┬──────┘   │
+    └──────────────────────────────────┼──────────┘
+                                       │
+                                  ┌────▼────┐
+                                  │ Internet │
+                                  └──────────┘
 ```
-
-**VLESS WebSocket** through Cloudflare solves the IP reputation problem. The client talks to Cloudflare (trusted IP), Cloudflare relays to the home server through the tunnel.
-
-**Why Reality isn't used here**: VLESS Reality needs raw TCP access to the proxy. Cloudflare Tunnel only supports HTTP/WebSocket. That's fine — Cloudflare provides the TLS layer, so Reality's camouflage isn't needed.
 
 ---
 
@@ -121,83 +189,27 @@ Both accept VLESS URIs (the `vless://...` links) for easy configuration.
 ### What the firewall sees
 
 ```
-Source:      Student's PC (10.x.x.x)
-Destination: 104.21.33.188:443 (Cloudflare CDN)
-Protocol:    TLS 1.3
-SNI:         janus.nature46.uk (or any valid CF domain)
-Content:     Encrypted (TLS) — invisible to DPI
+Source:      Student's PC (172.30.x.x)
+Destination: Cloudflare IP (104.21.x.x:443)
+SNI:         janus-relay.jonpeter46.workers.dev
+Protocol:    TLS 1.3 WebSocket
+Content:     Encrypted — invisible to DPI
 ```
 
-This is indistinguishable from browsing any Cloudflare-hosted website.
+This is indistinguishable from any website using Cloudflare Workers.
 
 ### What Cloudflare sees
 
-Cloudflare can see the WebSocket traffic content (since it terminates TLS), but:
+- WebSocket traffic from Worker to origin
+- VLESS payload is opaque binary data
+- Low traffic volume doesn't trigger review
 
-- VLESS payload is additional encrypted data
-- Cloudflare processes millions of WebSocket connections
-- Individual low-traffic connections don't trigger review
+### What the home ISP sees
 
-### What your ISP sees (home connection)
-
-- An outbound Cloudflare Tunnel connection (standard cloudflared traffic)
-- This is identical to millions of legitimate Cloudflare Tunnel users
-- CG-NAT is irrelevant since the tunnel is outbound
+- Standard Cloudflare Tunnel connection (outbound)
+- Identical to millions of legitimate tunnel users
+- CG-NAT is irrelevant (outbound connection)
 
 ---
 
-## Network Diagram (Complete)
-
-```
-                    SCHOOL NETWORK (Aules)
-    ┌──────────────────────────────────────────────┐
-    │                                              │
-    │  ┌──────────┐    HTTPS/443    ┌──────────┐  │
-    │  │ Student  │ ──────────────▶ │ Firewall │  │
-    │  │ Nekobox  │  Cloudflare IP  │          │  │
-    │  └──────────┘   104.21.x.x   └────┬─────┘  │
-    │                                    │ ✅      │
-    └────────────────────────────────────┼─────────┘
-                                         │
-                          ┌──────────────▼──────────────┐
-                          │     CLOUDFLARE EDGE          │
-                          │  Madrid / Barcelona PoPs     │
-                          │                              │
-                          │  TLS termination             │
-                          │  WebSocket relay              │
-                          │  Tunnel routing               │
-                          └──────────────┬──────────────┘
-                                         │
-                          Cloudflare Tunnel (outbound)
-                                         │
-                    HOME NETWORK (Borriana)
-    ┌────────────────────────────────────┼─────────┐
-    │                                    │         │
-    │  ┌──────────┐    tunnel    ┌──────▼──────┐  │
-    │  │ Proxmox  │◀════════════▶│ LXC-101     │  │
-    │  │  Odin    │              │ cloudflared │  │
-    │  │ .0.100   │              │ .0.111      │  │
-    │  └──────────┘              └─────────────┘  │
-    │                                    │         │
-    │                            ┌──────▼──────┐  │
-    │                            │ LXC-109     │  │
-    │                            │ Janus       │  │
-    │                            │ Xray :8080  │  │
-    │                            │ 3x-ui :2053 │  │
-    │                            │ .0.103      │  │
-    │                            └──────┬──────┘  │
-    │                                   │         │
-    │                            ┌──────▼──────┐  │
-    │                            │   Router    │  │
-    │                            │  CG-NAT    │  │
-    │                            └──────┬──────┘  │
-    └───────────────────────────────────┼─────────┘
-                                        │
-                                   ┌────▼────┐
-                                   │ Internet │
-                                   └──────────┘
-```
-
----
-
-**Next**: [03 - AWS EC2 Setup](03-AWS-EC2-Setup.md) — The first approach (and why it wasn't enough)
+**Next**: [03 - AWS EC2 Setup](03-AWS-EC2-Setup.md) — Alternative approach using VLESS Reality
