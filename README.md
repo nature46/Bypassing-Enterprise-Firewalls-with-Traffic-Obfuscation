@@ -7,6 +7,8 @@
 
 > **Named after Janus, the Roman god of doorways and passages** — this project opens doors through firewalls that were designed to keep them shut.
 
+![Janus God](https://github.com/nature46/Bypassing-Enterprise-Firewalls-with-Traffic-Obfuscation/blob/main/janus.png)
+
 **Project Janus is a cybersecurity research project that demonstrates how to circumvent enterprise-grade network firewalls using traffic obfuscation, protocol tunneling, and CDN fronting techniques.** Developed as part of an ASIR (Administración de Sistemas Informáticos y Redes) curriculum at IES Jaume I, Borriana (Spain).
 
 ---
